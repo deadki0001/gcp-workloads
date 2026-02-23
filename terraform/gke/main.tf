@@ -119,7 +119,7 @@ resource "google_container_cluster" "primary" {
   # The control plane communicates with nodes via private peering
   private_cluster_config {
     enable_private_nodes    = true
-    enable_private_endpoint = false   # Keep public endpoint for kubectl access
+    enable_private_endpoint = false # Keep public endpoint for kubectl access
     master_ipv4_cidr_block  = "172.16.0.0/28"
   }
 

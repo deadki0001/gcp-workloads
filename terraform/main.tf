@@ -28,37 +28,37 @@ provider "google-beta" {
 
 # GKE API - required to create Kubernetes clusters
 resource "google_project_service" "container" {
-  project = var.project_id
-  service = "container.googleapis.com"
+  project            = var.project_id
+  service            = "container.googleapis.com"
   disable_on_destroy = false
 }
 
 # Cloud SQL API - required to create managed MySQL instances
 resource "google_project_service" "sqladmin" {
-  project = var.project_id
-  service = "sqladmin.googleapis.com"
+  project            = var.project_id
+  service            = "sqladmin.googleapis.com"
   disable_on_destroy = false
 }
 
 # Service Networking API - required for Cloud SQL private IP connectivity
 # Allows Cloud SQL to sit on your VPC without a public IP
 resource "google_project_service" "service_networking" {
-  project = var.project_id
-  service = "servicenetworking.googleapis.com"
+  project            = var.project_id
+  service            = "servicenetworking.googleapis.com"
   disable_on_destroy = false
 }
 
 # Secret Manager API - required to store database credentials securely
 resource "google_project_service" "secretmanager" {
-  project = var.project_id
-  service = "secretmanager.googleapis.com"
+  project            = var.project_id
+  service            = "secretmanager.googleapis.com"
   disable_on_destroy = false
 }
 
 # Artifact Registry API - required for GKE nodes to pull container images
 resource "google_project_service" "artifactregistry" {
-  project = var.project_id
-  service = "artifactregistry.googleapis.com"
+  project            = var.project_id
+  service            = "artifactregistry.googleapis.com"
   disable_on_destroy = false
 }
 

@@ -33,7 +33,7 @@ resource "google_sql_database_instance" "main" {
     # the shared VPC. Application pods connect via the Cloud SQL Auth Proxy
     # which handles authentication and encrypted tunnelling automatically.
     ip_configuration {
-      ipv4_enabled    = false   # Disables public IP
+      ipv4_enabled    = false # Disables public IP
       private_network = var.network_id
 
       # Require SSL for all database connections
@@ -46,8 +46,8 @@ resource "google_sql_database_instance" "main" {
     # ========================================================================
     backup_configuration {
       enabled            = true
-      binary_log_enabled = true     # Required for point-in-time recovery
-      start_time         = "02:00"  # Backup at 2am UTC (quiet hours)
+      binary_log_enabled = true    # Required for point-in-time recovery
+      start_time         = "02:00" # Backup at 2am UTC (quiet hours)
     }
 
     # ========================================================================
