@@ -1,181 +1,78 @@
 # ============================================================================
 # GCP WORKLOADS DEPLOYMENT PIPELINE
 # ============================================================================
-# Two-stage pipeline with manual approval gate:
-#   Stage 1: Plan  — runs automatically on PR open/update and push to main
-#   Stage 2: Apply — runs on push to main after manual approval
-#
-# CodeRabbit integration:
-#   - Open a PR instead of pushing directly to main
-#   - CodeRabbit reviews the code and leaves comments on the PR
-#   - Plan job runs automatically showing what will change in GCP
-#   - Merge the PR once happy — apply job triggers and deploys
+# Mirrors the landing zone pipeline pattern exactly:
+#   Stage 1: terraform-plan — runs automatically on push to main
+#   Stage 2: terraform-apply — waits for manual approval via environment gate
 #
 # Authentication: Workload Identity Federation — no credentials stored
+# Workloads Terraform files live under the terraform/ subdirectory
 
 name: Deploy Workloads
 
 on:
-  # Runs plan automatically when a PR is opened or updated
-  # CodeRabbit will review the PR at the same time
-  pull_request:
-    branches:
-      - main
-  # Runs apply when PR is merged to main
   push:
-    branches:
-      - main
+    branches: [ main ]
 
-env:
-  PROJECT_ID: prod-workloads-lz-001
-  REGION: europe-west1
-  CLUSTER_NAME: workloads-gke-001
-  WORKLOAD_IDENTITY_PROVIDER: projects/648099970996/locations/global/workloadIdentityPools/github-pool/providers/github-provider
-  SERVICE_ACCOUNT: terraform-sa@project-5a757d72-eb26-477c-bd9.iam.gserviceaccount.com
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
-  # ============================================================================
-  # JOB 1: TERRAFORM PLAN
-  # Runs on every PR and every push to main.
-  # Shows exactly what infrastructure will be created, changed, or destroyed.
-  # No resources are modified in this job.
-  # ============================================================================
-  plan:
-    name: Terraform Plan
+  terraform-plan:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write       # Required for Workload Identity Federation
-      pull-requests: write  # Required for CodeRabbit and plan comments on PRs
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # Authenticate to GCP using Workload Identity Federation
-      # gcp-workloads repo is bound to terraform-sa via bootstrap WIF binding
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
+      - uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ env.SERVICE_ACCOUNT }}
+          workload_identity_provider: "projects/648099970996/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+          service_account: "terraform-sa@project-5a757d72-eb26-477c-bd9.iam.gserviceaccount.com"
 
-      - name: Setup gcloud CLI
-        uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v2
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.7.0
-
-      - name: Terraform Format Check
-        working-directory: terraform
-        run: terraform fmt -check -recursive
-        continue-on-error: true
 
       - name: Terraform Init
         working-directory: terraform
         run: terraform init
 
-      - name: Terraform Validate
-        working-directory: terraform
-        run: terraform validate
-
       - name: Terraform Plan
-        id: plan
         working-directory: terraform
-        run: |
-          terraform plan \
-            -var="db_password=${{ secrets.DB_PASSWORD }}" \
-            -no-color \
-            -out=tfplan 2>&1 | tee plan_output.txt
+        run: terraform plan -var="db_password=${{ secrets.DB_PASSWORD }}"
         env:
           TF_VAR_billing_account: ${{ secrets.TF_BILLING_ACCOUNT }}
-        continue-on-error: true
 
-      # Post the plan output as a comment on the PR
-      # This is what gives you visibility into what will change
-      # without leaving GitHub to read pipeline logs
-      - name: Post Plan to PR
-        uses: actions/github-script@v7
-        if: github.event_name == 'pull_request'
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const fs = require('fs');
-            const plan = fs.readFileSync('terraform/plan_output.txt', 'utf8');
-            const maxLength = 65000;
-            const truncated = plan.length > maxLength
-              ? plan.substring(0, maxLength) + '\n\n... output truncated ...'
-              : plan;
-            const output = `## Terraform Plan 📋
-            <details>
-            <summary>Click to expand plan output</summary>
-
-            \`\`\`terraform
-            ${truncated}
-            \`\`\`
-            </details>
-
-            *Triggered by: @${{ github.actor }} on \`${{ github.ref }}\`*`;
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: output
-            });
-
-      # Get GKE credentials to run kubectl diff if cluster already exists
+      # Cluster does not exist on first run — fails gracefully
       - name: Get GKE Credentials
         run: |
-          gcloud container clusters get-credentials ${{ env.CLUSTER_NAME }} \
-            --region ${{ env.REGION }} \
-            --project ${{ env.PROJECT_ID }}
+          gcloud container clusters get-credentials workloads-gke-001 \
+            --region europe-west1 \
+            --project prod-workloads-lz-001
         continue-on-error: true
 
-      # Shows what Kubernetes resources will change — same concept as terraform plan
-      # but for the cluster manifests. Only runs if cluster already exists.
       - name: Kubectl Diff
         run: kubectl diff -f kubernetes/ || true
         continue-on-error: true
 
-      - name: Check Plan Status
-        if: steps.plan.outcome == 'failure'
-        run: exit 1
-
-  # ============================================================================
-  # JOB 2: TERRAFORM APPLY + KUBECTL APPLY
-  # Only runs on push to main (i.e. after PR is merged).
-  # Requires manual approval via GitHub environment protection rules.
-  # Set up: Settings → Environments → production → Required reviewers → add yourself
-  # ============================================================================
-  apply:
-    name: Terraform Apply + Kubectl Apply
+  terraform-apply:
     runs-on: ubuntu-latest
-    needs: plan
-    # Only run apply on merge to main, not on PRs
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    environment: production   # This triggers the manual approval gate
-
-    permissions:
-      contents: read
-      id-token: write
+    needs: terraform-plan
+    environment: production
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
+      - uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ env.SERVICE_ACCOUNT }}
+          workload_identity_provider: "projects/648099970996/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+          service_account: "terraform-sa@project-5a757d72-eb26-477c-bd9.iam.gserviceaccount.com"
 
-      - name: Setup gcloud CLI
-        uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v2
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.7.0
 
@@ -183,72 +80,54 @@ jobs:
         working-directory: terraform
         run: terraform init
 
-      # Apply all Terraform infrastructure
-      # GKE cluster creation takes 8-12 minutes on first run
-      # Cloud SQL instance takes 5-8 minutes
       - name: Terraform Apply
         working-directory: terraform
-        run: |
-          terraform apply \
-            -var="db_password=${{ secrets.DB_PASSWORD }}" \
-            -auto-approve
+        run: terraform apply -var="db_password=${{ secrets.DB_PASSWORD }}" -auto-approve
         env:
           TF_VAR_billing_account: ${{ secrets.TF_BILLING_ACCOUNT }}
 
-      # Configure kubectl to communicate with the newly created GKE cluster
-      # This writes credentials to ~/.kube/config on the runner
       - name: Get GKE Credentials
         run: |
-          gcloud container clusters get-credentials ${{ env.CLUSTER_NAME }} \
-            --region ${{ env.REGION }} \
-            --project ${{ env.PROJECT_ID }}
+          gcloud container clusters get-credentials workloads-gke-001 \
+            --region europe-west1 \
+            --project prod-workloads-lz-001
 
-      # Create the database password secret in Kubernetes
-      # --dry-run=client -o yaml | kubectl apply -f - is idempotent
-      # meaning it is safe to run on every deployment without error
       - name: Create Database Secret
         run: |
           kubectl create secret generic db-credentials \
             --from-literal=password=${{ secrets.DB_PASSWORD }} \
             --dry-run=client -o yaml | kubectl apply -f -
 
-      # Apply Kubernetes manifests in strict dependency order
-      # Service accounts must exist before deployments that reference them
       - name: Apply Kubernetes Service Account
         run: kubectl apply -f kubernetes/api/serviceaccount.yaml
 
-      # ConfigMaps must exist before deployments that mount them as volumes
       - name: Apply ConfigMaps
         run: |
           kubectl apply -f kubernetes/frontend/configmap.yaml
           kubectl apply -f kubernetes/api/configmap.yaml
 
-      # Deploy frontend and API workloads
       - name: Apply Frontend Manifests
         run: kubectl apply -f kubernetes/frontend/
 
       - name: Apply API Manifests
         run: kubectl apply -f kubernetes/api/
 
-      # Block until deployments are fully rolled out
-      # Fails the pipeline if pods do not become ready within 5 minutes
       - name: Wait for Frontend Rollout
         run: kubectl rollout status deployment/frontend --timeout=300s
 
       - name: Wait for API Rollout
         run: kubectl rollout status deployment/api --timeout=300s
 
-      # Print cluster and application status for verification
       - name: Print Deployment Status
         run: |
           echo "=============================="
-          echo "NODE STATUS"
+          echo "NODES"
           echo "=============================="
           kubectl get nodes
 
           echo ""
           echo "=============================="
-          echo "POD STATUS"
+          echo "PODS"
           echo "=============================="
           kubectl get pods -o wide
 
@@ -264,4 +143,3 @@ jobs:
           echo "=============================="
           kubectl get service frontend-service \
             -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
-

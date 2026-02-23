@@ -98,8 +98,14 @@ resource "google_secret_manager_secret" "db_password" {
   secret_id = "db-password"
   project   = var.project_id
 
+  # Auto replication is blocked by the org policy restricting resources
+  # to europe-locations. Use user-managed replication pinned to europe-west1.
   replication {
-    auto {}
+    user_managed {
+      replicas {
+        location = "europe-west1"
+      }
+    }
   }
 }
 
