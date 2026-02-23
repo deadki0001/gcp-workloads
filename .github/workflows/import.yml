@@ -17,7 +17,7 @@ jobs:
       - uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: "projects/648099970996/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
-          service_account: "terraform-sa@project-5a757d72-eb26-477c-bd9.iam.gserviceaccount.com"
+          service_account: "terraform-sa@project-5a757d72-eb26-477c-gb9.iam.gserviceaccount.com"
 
       - uses: google-github-actions/setup-gcloud@v2
 
@@ -36,6 +36,7 @@ jobs:
             -var="db_password=placeholder" \
             module.networking.google_compute_global_address.private_ip_range \
             projects/networking-host-lz-001/global/addresses/cloudsql-private-ip-range
+        continue-on-error: true
 
       - name: Import GKE Webhook Firewall
         working-directory: terraform
@@ -44,6 +45,7 @@ jobs:
             -var="db_password=placeholder" \
             module.networking.google_compute_firewall.gke_master_webhook \
             projects/networking-host-lz-001/global/firewalls/allow-gke-master-webhook
+        continue-on-error: true
 
       - name: Import HTTP HTTPS Firewall
         working-directory: terraform
@@ -52,3 +54,13 @@ jobs:
             -var="db_password=placeholder" \
             module.networking.google_compute_firewall.allow_http_https \
             projects/networking-host-lz-001/global/firewalls/allow-http-https-ingress
+        continue-on-error: true
+
+      - name: Import Secret Manager Secret
+        working-directory: terraform
+        run: |
+          terraform import \
+            -var="db_password=placeholder" \
+            module.database.google_secret_manager_secret.db_password \
+            projects/prod-workloads-lz-001/secrets/db-password
+        continue-on-error: true
