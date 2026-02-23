@@ -114,7 +114,5 @@ resource "google_service_networking_connection" "private_vpc_connection" {
   network                 = data.google_compute_network.shared_vpc.id
   service                 = "servicenetworking.googleapis.com"
   reserved_peering_ranges = [google_compute_global_address.private_ip_range.name]
-
-  # Must wait for the API to be enabled on the networking host project
-  depends_on = [google_compute_global_address.private_ip_range]
+  depends_on              = [google_compute_global_address.private_ip_range]
 }
