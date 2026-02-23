@@ -33,6 +33,7 @@ jobs:
         working-directory: terraform
         run: |
           terraform import \
+            -var="db_password=placeholder" \
             module.networking.google_compute_global_address.private_ip_range \
             projects/networking-host-lz-001/global/addresses/cloudsql-private-ip-range
 
@@ -40,6 +41,7 @@ jobs:
         working-directory: terraform
         run: |
           terraform import \
+            -var="db_password=placeholder" \
             module.networking.google_compute_firewall.gke_master_webhook \
             projects/networking-host-lz-001/global/firewalls/allow-gke-master-webhook
 
@@ -47,5 +49,6 @@ jobs:
         working-directory: terraform
         run: |
           terraform import \
+            -var="db_password=placeholder" \
             module.networking.google_compute_firewall.allow_http_https \
             projects/networking-host-lz-001/global/firewalls/allow-http-https-ingress
