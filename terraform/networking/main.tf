@@ -45,15 +45,6 @@ resource "google_compute_global_address" "private_ip_range" {
   project       = "networking-host-lz-001"
 }
 
-# Connect the private IP range to Google's service networking
-# This creates a VPC peering between your network and Google's managed network
-# where Cloud SQL instances run
-resource "google_service_networking_connection" "private_vpc_connection" {
-  network                 = data.google_compute_network.shared_vpc.id
-  service                 = "servicenetworking.googleapis.com"
-  reserved_peering_ranges = [google_compute_global_address.private_ip_range.name]
-}
-
 # ============================================================================
 # FIREWALL RULES FOR APPLICATION TRAFFIC
 # ============================================================================
