@@ -1,0 +1,51 @@
+name: Import Existing Resources
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terraform-import:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: "projects/648099970996/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+          service_account: "terraform-sa@project-5a757d72-eb26-477c-bd9.iam.gserviceaccount.com"
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.0
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init
+
+      - name: Import Private IP Range
+        working-directory: terraform
+        run: |
+          terraform import \
+            module.networking.google_compute_global_address.private_ip_range \
+            projects/networking-host-lz-001/global/addresses/cloudsql-private-ip-range
+
+      - name: Import GKE Webhook Firewall
+        working-directory: terraform
+        run: |
+          terraform import \
+            module.networking.google_compute_firewall.gke_master_webhook \
+            projects/networking-host-lz-001/global/firewalls/allow-gke-master-webhook
+
+      - name: Import HTTP HTTPS Firewall
+        working-directory: terraform
+        run: |
+          terraform import \
+            module.networking.google_compute_firewall.allow_http_https \
+            projects/networking-host-lz-001/global/firewalls/allow-http-https-ingress
