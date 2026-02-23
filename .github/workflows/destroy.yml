@@ -30,21 +30,30 @@ jobs:
         working-directory: terraform
         run: terraform init
 
-      # Must disable deletion protection before destroy will work on Cloud SQL
+      # Delete Cloud SQL if it still exists — ignore error if already gone
       - name: Disable Cloud SQL Deletion Protection
         run: |
           gcloud sql instances patch workloads-mysql-001 \
             --no-deletion-protection \
-            --project prod-workloads-lz-001
+            --project prod-workloads-lz-001 || true
 
-      # Delete Cloud SQL first so VPC peering connection can then be removed
       - name: Delete Cloud SQL Instance
         run: |
           gcloud sql instances delete workloads-mysql-001 \
             --project prod-workloads-lz-001 \
-            --quiet
+            --quiet || true
 
-      # Now destroy remaining Terraform-managed resources
+      # Remove VPC peering from state so Terraform stops trying to delete it
+      # The peering will be removed by GCP automatically once Cloud SQL is gone
+      - name: Remove VPC Peering From State
+        working-directory: terraform
+        run: |
+          terraform state rm \
+            module.networking.google_service_networking_connection.private_vpc_connection || true
+          terraform state rm \
+            module.networking.google_compute_global_address.private_ip_range || true
+
+      # Now destroy everything remaining
       - name: Terraform Destroy
         working-directory: terraform
         run: terraform destroy -var="db_password=anything" -auto-approve
