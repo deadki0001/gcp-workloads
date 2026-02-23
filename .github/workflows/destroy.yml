@@ -1,7 +1,7 @@
 name: Destroy Workloads
 
 on:
-  workflow_dispatch:  # Manual trigger only — never runs automatically
+  workflow_dispatch:
 
 permissions:
   id-token: write
@@ -30,6 +30,21 @@ jobs:
         working-directory: terraform
         run: terraform init
 
+      # Must disable deletion protection before destroy will work on Cloud SQL
+      - name: Disable Cloud SQL Deletion Protection
+        run: |
+          gcloud sql instances patch workloads-mysql-001 \
+            --no-deletion-protection \
+            --project prod-workloads-lz-001
+
+      # Delete Cloud SQL first so VPC peering connection can then be removed
+      - name: Delete Cloud SQL Instance
+        run: |
+          gcloud sql instances delete workloads-mysql-001 \
+            --project prod-workloads-lz-001 \
+            --quiet
+
+      # Now destroy remaining Terraform-managed resources
       - name: Terraform Destroy
         working-directory: terraform
         run: terraform destroy -var="db_password=anything" -auto-approve
