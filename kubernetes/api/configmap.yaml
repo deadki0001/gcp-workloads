@@ -1,0 +1,24 @@
+# ============================================================================
+# API CONFIGMAP — NON-SENSITIVE CONFIGURATION
+# ============================================================================
+# Stores non-sensitive environment variables for the Node.js API.
+# Sensitive values like passwords are stored in Kubernetes Secrets,
+# not ConfigMaps. ConfigMaps are not encrypted at rest by default.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-config
+  namespace: default
+data:
+  # Node.js environment
+  NODE_ENV: "production"
+  PORT: "3000"
+
+  # Database connection details — non-sensitive parts
+  # The API connects to 127.0.0.1 because the Cloud SQL Auth Proxy
+  # runs as a sidecar container in the same pod and listens on localhost.
+  # The proxy handles the actual connection to Cloud SQL over a secure tunnel.
+  DB_HOST: "127.0.0.1"
+  DB_PORT: "3306"
+  DB_NAME: "appdb"
+  DB_USER: "appuser"

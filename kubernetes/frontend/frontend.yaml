@@ -1,0 +1,65 @@
+# ============================================================================
+# NGINX FRONTEND DEPLOYMENT
+# ============================================================================
+# Runs the nginx web server as the public-facing frontend tier.
+# nginx serves static HTML/JS and proxies API requests to the Node.js API
+# service running in the same cluster.
+#
+# Traffic flow:
+# Internet → GCP LoadBalancer → nginx pod → Node.js API (ClusterIP)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: default
+  labels:
+    app: frontend
+    tier: frontend
+spec:
+  # Run 2 replicas for basic availability
+  # If one pod crashes or a node is drained, traffic continues
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+        tier: frontend
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.25-alpine
+          ports:
+            - containerPort: 80
+          # Mount the nginx configuration from a ConfigMap
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d
+          # Resource limits prevent one pod consuming all node resources
+          resources:
+            requests:
+              cpu: "100m"       # 0.1 CPU cores minimum
+              memory: "128Mi"   # 128MB RAM minimum
+            limits:
+              cpu: "200m"       # 0.2 CPU cores maximum
+              memory: "256Mi"   # 256MB RAM maximum
+          # Liveness probe restarts the container if nginx stops responding
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          # Readiness probe removes pod from load balancer if it is not ready
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: nginx-config

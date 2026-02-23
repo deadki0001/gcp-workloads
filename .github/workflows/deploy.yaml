@@ -1,0 +1,162 @@
+# ============================================================================
+# GCP WORKLOADS DEPLOYMENT PIPELINE
+# ============================================================================
+# Two-stage pipeline mirroring the landing zone pattern:
+#   Stage 1: terraform-plan + kubectl-diff  (automatic on push)
+#   Stage 2: terraform-apply + kubectl-apply (requires manual approval)
+#
+# Authentication uses Workload Identity Federation — no credentials stored.
+# The gcp-workloads repo was added to the bootstrap WIF binding.
+
+name: Deploy Workloads
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  PROJECT_ID: prod-workloads-lz-001
+  REGION: europe-west1
+  CLUSTER_NAME: workloads-gke-001
+  WORKLOAD_IDENTITY_PROVIDER: projects/648099970996/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+  SERVICE_ACCOUNT: terraform-sa@project-5a757d72-eb26-477c-bd9.iam.gserviceaccount.com
+
+jobs:
+  # ============================================================================
+  # JOB 1: PLAN
+  # Runs automatically. Shows what Terraform will change and what
+  # Kubernetes resources differ from current cluster state.
+  # ============================================================================
+  plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # Required for Workload Identity Federation
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Authenticate to GCP using Workload Identity Federation
+      # Same pattern as landing zone — no secrets stored in GitHub
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init
+
+      - name: Terraform Plan
+        working-directory: terraform
+        run: |
+          terraform plan \
+            -var="db_password=${{ secrets.DB_PASSWORD }}" \
+            -out=tfplan
+        env:
+          TF_VAR_billing_account: ${{ secrets.TF_BILLING_ACCOUNT }}
+
+      # Get GKE credentials to run kubectl diff
+      - name: Get GKE Credentials
+        run: |
+          gcloud container clusters get-credentials ${{ env.CLUSTER_NAME }} \
+            --region ${{ env.REGION }} \
+            --project ${{ env.PROJECT_ID }}
+        # This step only runs if the cluster already exists
+        continue-on-error: true
+
+      - name: Kubectl Diff
+        run: |
+          kubectl diff -f kubernetes/ || true
+        continue-on-error: true
+
+  # ============================================================================
+  # JOB 2: APPLY
+  # Requires manual approval via GitHub environment protection.
+  # Reviewer reads the plan output before approving.
+  # ============================================================================
+  apply:
+    name: Terraform Apply + Kubectl Apply
+    runs-on: ubuntu-latest
+    needs: plan
+    environment: production   # Triggers manual approval gate
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init
+
+      # Apply infrastructure — GKE cluster, Cloud SQL, networking
+      - name: Terraform Apply
+        working-directory: terraform
+        run: |
+          terraform apply \
+            -var="db_password=${{ secrets.DB_PASSWORD }}" \
+            -auto-approve
+        env:
+          TF_VAR_billing_account: ${{ secrets.TF_BILLING_ACCOUNT }}
+
+      # Get cluster credentials for kubectl
+      - name: Get GKE Credentials
+        run: |
+          gcloud container clusters get-credentials ${{ env.CLUSTER_NAME }} \
+            --region ${{ env.REGION }} \
+            --project ${{ env.PROJECT_ID }}
+
+      # Create database credentials secret from GitHub secret
+      # --dry-run=client -o yaml | kubectl apply -f - is the idempotent
+      # pattern for creating secrets — safe to run on every deployment
+      - name: Create Database Secret
+        run: |
+          kubectl create secret generic db-credentials \
+            --from-literal=password=${{ secrets.DB_PASSWORD }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      # Apply Kubernetes manifests in dependency order
+      - name: Apply Service Account
+        run: kubectl apply -f kubernetes/api/serviceaccount.yaml
+
+      - name: Apply ConfigMaps
+        run: |
+          kubectl apply -f kubernetes/frontend/configmap.yaml
+          kubectl apply -f kubernetes/api/configmap.yaml
+
+      - name: Apply Deployments and Services
+        run: |
+          kubectl apply -f kubernetes/frontend/
+          kubectl apply -f kubernetes/api/
+
+      # Wait for deployments to roll out before marking pipeline green
+      - name: Wait for Rollout
+        run: |
+          kubectl rollout status deployment/frontend --timeout=300s
+          kubectl rollout status deployment/api --timeout=300s
+
+      # Print the external IP of the load balancer for verification
+      - name: Get Load Balancer IP
+        run: |
+          echo "Frontend LoadBalancer IP:"
+          kubectl get service frontend-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}'

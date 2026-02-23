@@ -1,0 +1,125 @@
+# ============================================================================
+# NODE.JS API DEPLOYMENT
+# ============================================================================
+# Runs the Node.js REST API as the middle tier.
+# Connects to Cloud SQL MySQL via the Cloud SQL Auth Proxy sidecar.
+#
+# SIDECAR PATTERN:
+# Each API pod runs TWO containers:
+#   1. api         — the Node.js application
+#   2. cloudsql-proxy — authenticates and tunnels database traffic
+#
+# The API container connects to 127.0.0.1:3306 (localhost).
+# The proxy intercepts that connection and tunnels it securely to Cloud SQL.
+# This means the API never needs database credentials in its network config
+# and Cloud SQL never needs a public IP address.
+#
+# AWS equivalent: RDS Proxy or a sidecar that handles RDS IAM authentication.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: default
+  labels:
+    app: api
+    tier: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+        tier: backend
+      annotations:
+        # This annotation links the Kubernetes service account to the
+        # GCP service account via Workload Identity.
+        # The cloudsql-proxy container uses k8s-cloudsql-proxy service account
+        # which is bound to the GCP cloudsql-proxy-sa service account.
+        iam.gke.io/gcp-service-account: "cloudsql-proxy-sa@prod-workloads-lz-001.iam.gserviceaccount.com"
+    spec:
+      # Use the Kubernetes service account bound to the GCP Cloud SQL proxy SA
+      serviceAccountName: k8s-cloudsql-proxy
+
+      containers:
+        # ====================================================================
+        # CONTAINER 1: NODE.JS API
+        # ====================================================================
+        - name: api
+          # Replace with your actual API image once built
+          # For now uses a placeholder that returns a basic response
+          image: node:18-alpine
+          command:
+            - node
+            - "-e"
+            - |
+              const http = require('http');
+              const mysql = require('mysql2/promise');
+              const server = http.createServer(async (req, res) => {
+                res.setHeader('Content-Type', 'application/json');
+                if (req.url === '/health') {
+                  res.end(JSON.stringify({ status: 'ok' }));
+                } else {
+                  res.end(JSON.stringify({ message: 'API running', timestamp: new Date() }));
+                }
+              });
+              server.listen(3000, () => console.log('API listening on 3000'));
+          ports:
+            - containerPort: 3000
+          # Load non-sensitive config from ConfigMap
+          envFrom:
+            - configMapRef:
+                name: api-config
+          # Load sensitive database password from Kubernetes Secret
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: password
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+        # ====================================================================
+        # CONTAINER 2: CLOUD SQL AUTH PROXY (SIDECAR)
+        # ====================================================================
+        # Runs alongside the API container in the same pod.
+        # Listens on 127.0.0.1:3306 and forwards connections to Cloud SQL.
+        # Authenticates using Workload Identity — no keys needed.
+        - name: cloudsql-proxy
+          image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.8.0
+          args:
+            # Replace with actual connection name from Terraform output:
+            # terraform output -module=database instance_connection_name
+            - "prod-workloads-lz-001:europe-west1:workloads-mysql-001"
+            - "--private-ip"          # Connect via private IP, not public
+            - "--port=3306"           # Listen on MySQL default port
+            - "--address=127.0.0.1"  # Only accessible within the pod
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+          securityContext:
+            runAsNonRoot: true
