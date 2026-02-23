@@ -1,0 +1,35 @@
+name: Destroy Workloads
+
+on:
+  workflow_dispatch:  # Manual trigger only — never runs automatically
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terraform-destroy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: "projects/648099970996/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+          service_account: "terraform-sa@project-5a757d72-eb26-477c-bd9.iam.gserviceaccount.com"
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.0
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init
+
+      - name: Terraform Destroy
+        working-directory: terraform
+        run: terraform destroy -var="db_password=anything" -auto-approve

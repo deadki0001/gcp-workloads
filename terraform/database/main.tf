@@ -19,7 +19,7 @@ resource "google_sql_database_instance" "main" {
 
   # Prevent accidental deletion of the database
   # To delete, set this to false, apply, then destroy
-  deletion_protection = true
+  deletion_protection = false
 
   settings {
     # db-f1-micro is the smallest tier - appropriate for learning/dev
