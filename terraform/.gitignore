@@ -1,0 +1,16 @@
+# Terraform
+**/.terraform/
+**/.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+*.tfplan
+tfplan
+plan_output.txt
+
+# Credentials — never commit these
+*.json
+gha-creds-*.json
+
+# OS
+.DS_Store
+Thumbs.db
