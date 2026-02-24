@@ -106,65 +106,30 @@ resource "google_container_cluster" "primary" {
   network    = "projects/networking-host-lz-001/global/networks/shared-vpc"
   subnetwork = "projects/networking-host-lz-001/regions/${var.region}/subnetworks/prod-subnet"
 
-
-  # Remove the default node pool immediately after cluster creation
-  # We define our own node pool below with specific configuration
-  # This is the recommended pattern for production GKE clusters
   remove_default_node_pool = true
   initial_node_count       = 1
 
-  # ========================================================================
-  # NETWORKING
-  # ========================================================================
-  # Place the cluster in the shared VPC prod-subnet
-  # The cluster uses the subnet created by the landing zone
-  network    = var.network
-  subnetwork = var.subnetwork
-
-  # Private cluster — nodes have no public IP addresses
-  # The control plane communicates with nodes via private peering
   private_cluster_config {
     enable_private_nodes    = true
-    enable_private_endpoint = false # Keep public endpoint for kubectl access
+    enable_private_endpoint = false
     master_ipv4_cidr_block  = "172.16.0.0/28"
   }
 
-  # ========================================================================
-  # WORKLOAD IDENTITY
-  # ========================================================================
-  # Enables pod-level GCP authentication without service account keys.
-  # Pods annotated with a Kubernetes service account automatically receive
-  # temporary GCP credentials bound to that service account.
   workload_identity_config {
     workload_pool = "${var.project_id}.svc.id.goog"
   }
 
-  # ========================================================================
-  # SECURITY
-  # ========================================================================
-  # Shielded nodes use Secure Boot and vTPM to verify node integrity
-  # Protects against rootkit and bootkit attacks at the hardware level
   enable_shielded_nodes = true
 
-  # ========================================================================
-  # ADDONS
-  # ========================================================================
   addons_config {
-    # HTTP load balancing creates GCP load balancers for Kubernetes Services
-    # of type LoadBalancer — needed for the nginx frontend public endpoint
     http_load_balancing {
       disabled = false
     }
-
-    # Horizontal Pod Autoscaler — scales pods based on CPU/memory
     horizontal_pod_autoscaling {
       disabled = false
     }
   }
 
-  # ========================================================================
-  # LOGGING AND MONITORING
-  # ========================================================================
   logging_service    = "logging.googleapis.com/kubernetes"
   monitoring_service = "monitoring.googleapis.com/kubernetes"
 }
