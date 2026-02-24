@@ -80,6 +80,8 @@ resource "google_service_account_iam_member" "workload_identity_binding" {
   service_account_id = google_service_account.cloudsql_proxy.name
   role               = "roles/iam.workloadIdentityUser"
   member             = "serviceAccount:${var.project_id}.svc.id.goog[default/k8s-cloudsql-proxy]"
+
+  depends_on = [google_container_cluster.primary]
 }
 
 # ============================================================================
@@ -100,6 +102,10 @@ resource "google_container_cluster" "primary" {
   name     = "workloads-gke-001"
   location = var.region
   project  = var.project_id
+
+  network    = "projects/networking-host-lz-001/global/networks/shared-vpc"
+  subnetwork = "projects/networking-host-lz-001/regions/${var.region}/subnetworks/prod-subnet"
+
 
   # Remove the default node pool immediately after cluster creation
   # We define our own node pool below with specific configuration
