@@ -92,12 +92,13 @@ jobs:
             projects/prod-workloads-lz-001/secrets/db-password
         continue-on-error: true
 
+      - name: Remove Tainted GKE Cluster From State
+        working-directory: terraform
+        run: terraform state rm module.gke.google_container_cluster.primary || true
+
       - name: Import GKE Cluster
         working-directory: terraform
         run: |
-          terraform state rm \
-            -var="db_password=placeholder" \
-            module.gke.google_container_cluster.primary || true
           terraform import \
             -var="db_password=placeholder" \
             module.gke.google_container_cluster.primary \
