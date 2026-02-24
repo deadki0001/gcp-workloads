@@ -145,6 +145,11 @@ resource "google_container_cluster" "primary" {
 # ============================================================================
 # NODE POOL
 # ============================================================================
+# Using free-tier friendly settings:
+# - e2-micro: smallest machine type, free tier eligible
+# - pd-standard: standard HDD avoids SSD quota limits
+# - 10GB disk: minimum size, keeps standard disk quota usage minimal
+# - max 1 node: prevents unexpected scaling costs
 resource "google_container_node_pool" "primary_nodes" {
   name     = "primary-node-pool"
   location = var.region
@@ -155,11 +160,14 @@ resource "google_container_node_pool" "primary_nodes" {
 
   autoscaling {
     min_node_count = 1
-    max_node_count = 3
+    max_node_count = 1
   }
 
   node_config {
-    machine_type    = "e2-medium"
+    machine_type = "e2-micro"
+    disk_type    = "pd-standard"
+    disk_size_gb = 10
+
     service_account = google_service_account.gke_nodes.email
 
     workload_metadata_config {
