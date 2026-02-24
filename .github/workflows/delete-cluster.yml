@@ -1,0 +1,29 @@
+name: Delete GKE Cluster
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  delete-cluster:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: "projects/648099970996/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+          service_account: "terraform-sa@project-5a757d72-eb26-477c-bd9.iam.gserviceaccount.com"
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Delete GKE Cluster
+        run: |
+          gcloud container clusters delete workloads-gke-001 \
+            --region europe-west1 \
+            --project prod-workloads-lz-001 \
+            --quiet
