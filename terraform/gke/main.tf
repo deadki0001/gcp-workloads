@@ -109,18 +109,47 @@ resource "google_container_cluster" "primary" {
   remove_default_node_pool = true
   initial_node_count       = 1
 
+  # ========================================================================
+  # IP ALLOCATION — REQUIRED FOR SHARED VPC
+  # ========================================================================
+  # When using a shared VPC, GKE requires explicit secondary IP ranges
+  # for pods and services. These ranges are defined on the subnet in the
+  # landing zone networking/main.tf and referenced by name here.
+  # Without this block GKE cannot allocate IPs for pods or services.
+  #
+  # AWS equivalent: VPC CNI secondary CIDR blocks for pod networking.
+  ip_allocation_policy {
+    cluster_secondary_range_name  = "pods"
+    services_secondary_range_name = "services"
+  }
+
+  # ========================================================================
+  # NETWORKING
+  # ========================================================================
+  # Private cluster — nodes have no public IP addresses
+  # The control plane communicates with nodes via private peering
   private_cluster_config {
     enable_private_nodes    = true
     enable_private_endpoint = false
     master_ipv4_cidr_block  = "172.16.0.0/28"
   }
 
+  # ========================================================================
+  # WORKLOAD IDENTITY
+  # ========================================================================
+  # Enables pod-level GCP authentication without service account keys.
   workload_identity_config {
     workload_pool = "${var.project_id}.svc.id.goog"
   }
 
+  # ========================================================================
+  # SECURITY
+  # ========================================================================
   enable_shielded_nodes = true
 
+  # ========================================================================
+  # ADDONS
+  # ========================================================================
   addons_config {
     http_load_balancing {
       disabled = false
@@ -130,6 +159,9 @@ resource "google_container_cluster" "primary" {
     }
   }
 
+  # ========================================================================
+  # LOGGING AND MONITORING
+  # ========================================================================
   logging_service    = "logging.googleapis.com/kubernetes"
   monitoring_service = "monitoring.googleapis.com/kubernetes"
 }
@@ -145,15 +177,11 @@ resource "google_container_node_pool" "primary_nodes" {
   cluster  = google_container_cluster.primary.name
   project  = var.project_id
 
-  # Start with 1 node per zone — scales automatically
   node_count = 1
 
   # ========================================================================
   # AUTOSCALING
   # ========================================================================
-  # Automatically adds or removes nodes based on pod scheduling demand
-  # Min 1 node ensures the cluster is never empty
-  # Max 3 nodes caps cost for the learning environment
   autoscaling {
     min_node_count = 1
     max_node_count = 3
@@ -163,26 +191,18 @@ resource "google_container_node_pool" "primary_nodes" {
   # NODE CONFIGURATION
   # ========================================================================
   node_config {
-    # e2-medium: 2 vCPU, 4GB RAM
-    # Smallest machine type that comfortably runs GKE system pods + app pods
-    machine_type = "e2-medium"
-
-    # Run nodes as the dedicated GKE service account, not default compute SA
+    machine_type    = "e2-medium"
     service_account = google_service_account.gke_nodes.email
 
-    # Enable Workload Identity on the nodes
     workload_metadata_config {
       mode = "GKE_METADATA"
     }
 
-    # Shielded instance config for node security
     shielded_instance_config {
       enable_secure_boot          = true
       enable_integrity_monitoring = true
     }
 
-    # Network tags for firewall rule targeting
-    # The landing zone firewall rules target "gke-node" tagged instances
     tags = ["gke-node"]
 
     oauth_scopes = [
@@ -193,8 +213,6 @@ resource "google_container_node_pool" "primary_nodes" {
   # ========================================================================
   # UPGRADE SETTINGS
   # ========================================================================
-  # Surge upgrade keeps one extra node available during upgrades
-  # so pods are never left without a node to schedule on
   upgrade_settings {
     max_surge       = 1
     max_unavailable = 0
