@@ -29,72 +29,9 @@ jobs:
         working-directory: terraform
         run: terraform init
 
-      - name: Import Private IP Range
-        working-directory: terraform
-        run: |
-          terraform import \
-            -var="db_password=placeholder" \
-            module.networking.google_compute_global_address.private_ip_range \
-            projects/networking-host-lz-001/global/addresses/cloudsql-private-ip-range
-        continue-on-error: true
-
-      - name: Import GKE Webhook Firewall
-        working-directory: terraform
-        run: |
-          terraform import \
-            -var="db_password=placeholder" \
-            module.networking.google_compute_firewall.gke_master_webhook \
-            projects/networking-host-lz-001/global/firewalls/allow-gke-master-webhook
-        continue-on-error: true
-
-      - name: Import HTTP HTTPS Firewall
-        working-directory: terraform
-        run: |
-          terraform import \
-            -var="db_password=placeholder" \
-            module.networking.google_compute_firewall.allow_http_https \
-            projects/networking-host-lz-001/global/firewalls/allow-http-https-ingress
-        continue-on-error: true
-
-      - name: Import Cloud SQL Instance
-        working-directory: terraform
-        run: |
-          terraform import \
-            -var="db_password=placeholder" \
-            module.database.google_sql_database_instance.main \
-            prod-workloads-lz-001:workloads-mysql-001
-        continue-on-error: true
-
-      - name: Import Cloud SQL Database
-        working-directory: terraform
-        run: |
-          terraform import \
-            -var="db_password=placeholder" \
-            module.database.google_sql_database.app_db \
-            prod-workloads-lz-001:workloads-mysql-001:appdb
-        continue-on-error: true
-
-      - name: Import Cloud SQL User
-        working-directory: terraform
-        run: |
-          terraform import \
-            -var="db_password=placeholder" \
-            module.database.google_sql_user.app_user \
-            prod-workloads-lz-001:workloads-mysql-001:appuser
-        continue-on-error: true
-
-      - name: Import Secret Manager Secret
-        working-directory: terraform
-        run: |
-          terraform import \
-            -var="db_password=placeholder" \
-            module.database.google_secret_manager_secret.db_password \
-            projects/prod-workloads-lz-001/secrets/db-password
-        continue-on-error: true
-
       - name: Remove Tainted GKE Cluster From State
         working-directory: terraform
-        run: terraform state rm module.gke.google_container_cluster.primary || true
+        run: terraform state rm module.gke.google_container_cluster.primary
 
       - name: Import GKE Cluster
         working-directory: terraform
@@ -103,4 +40,3 @@ jobs:
             -var="db_password=placeholder" \
             module.gke.google_container_cluster.primary \
             projects/prod-workloads-lz-001/locations/europe-west1/clusters/workloads-gke-001
-        continue-on-error: true
