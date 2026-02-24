@@ -16,30 +16,24 @@
 # ============================================================================
 # GKE SERVICE ACCOUNT
 # ============================================================================
-# Dedicated service account for GKE nodes.
-# Nodes run as this identity, not the default compute service account.
-# Follows least-privilege — only has permissions nodes actually need.
 resource "google_service_account" "gke_nodes" {
   account_id   = "gke-nodes-sa"
   display_name = "GKE Node Service Account"
   project      = var.project_id
 }
 
-# Allow GKE nodes to pull container images from Artifact Registry
 resource "google_project_iam_member" "gke_nodes_artifact_registry" {
   project = var.project_id
   role    = "roles/artifactregistry.reader"
   member  = "serviceAccount:${google_service_account.gke_nodes.email}"
 }
 
-# Allow GKE nodes to write logs to Cloud Logging
 resource "google_project_iam_member" "gke_nodes_logging" {
   project = var.project_id
   role    = "roles/logging.logWriter"
   member  = "serviceAccount:${google_service_account.gke_nodes.email}"
 }
 
-# Allow GKE nodes to write metrics to Cloud Monitoring
 resource "google_project_iam_member" "gke_nodes_monitoring" {
   project = var.project_id
   role    = "roles/monitoring.metricWriter"
@@ -49,17 +43,12 @@ resource "google_project_iam_member" "gke_nodes_monitoring" {
 # ============================================================================
 # CLOUD SQL AUTH PROXY SERVICE ACCOUNT
 # ============================================================================
-# Separate service account used by the Cloud SQL Auth Proxy sidecar.
-# The proxy authenticates to Cloud SQL using this identity instead of
-# a database password passed over the network.
-# AWS equivalent: IRSA role bound to a specific Kubernetes service account.
 resource "google_service_account" "cloudsql_proxy" {
   account_id   = "cloudsql-proxy-sa"
   display_name = "Cloud SQL Auth Proxy Service Account"
   project      = var.project_id
 }
 
-# Allow the proxy service account to connect to Cloud SQL instances
 resource "google_project_iam_member" "cloudsql_proxy_client" {
   project = var.project_id
   role    = "roles/cloudsql.client"
@@ -69,13 +58,6 @@ resource "google_project_iam_member" "cloudsql_proxy_client" {
 # ============================================================================
 # WORKLOAD IDENTITY BINDING
 # ============================================================================
-# Binds the Kubernetes service account (k8s-cloudsql-proxy) in the
-# default namespace to the GCP service account (cloudsql-proxy-sa).
-# When the proxy pod runs, it automatically gets GCP credentials
-# without needing any keys or secrets.
-#
-# AWS equivalent: Annotating a Kubernetes service account with
-# eks.amazonaws.com/role-arn to enable IRSA pod-level IAM.
 resource "google_service_account_iam_member" "workload_identity_binding" {
   service_account_id = google_service_account.cloudsql_proxy.name
   role               = "roles/iam.workloadIdentityUser"
@@ -87,7 +69,6 @@ resource "google_service_account_iam_member" "workload_identity_binding" {
 # ============================================================================
 # SECRET MANAGER ACCESS FOR API PODS
 # ============================================================================
-# Allow the API pods to read the database password from Secret Manager
 resource "google_secret_manager_secret_iam_member" "api_secret_access" {
   project   = var.project_id
   secret_id = "db-password"
@@ -103,6 +84,10 @@ resource "google_container_cluster" "primary" {
   location = var.region
   project  = var.project_id
 
+  # Set to false for learning environment so destroy and recreate works cleanly
+  # In production this should be true to prevent accidental deletion
+  deletion_protection = false
+
   network    = "projects/networking-host-lz-001/global/networks/shared-vpc"
   subnetwork = "projects/networking-host-lz-001/regions/${var.region}/subnetworks/prod-subnet"
 
@@ -112,12 +97,6 @@ resource "google_container_cluster" "primary" {
   # ========================================================================
   # IP ALLOCATION — REQUIRED FOR SHARED VPC
   # ========================================================================
-  # When using a shared VPC, GKE requires explicit secondary IP ranges
-  # for pods and services. These ranges are defined on the subnet in the
-  # landing zone networking/main.tf and referenced by name here.
-  # Without this block GKE cannot allocate IPs for pods or services.
-  #
-  # AWS equivalent: VPC CNI secondary CIDR blocks for pod networking.
   ip_allocation_policy {
     cluster_secondary_range_name  = "pods"
     services_secondary_range_name = "services"
@@ -126,8 +105,6 @@ resource "google_container_cluster" "primary" {
   # ========================================================================
   # NETWORKING
   # ========================================================================
-  # Private cluster — nodes have no public IP addresses
-  # The control plane communicates with nodes via private peering
   private_cluster_config {
     enable_private_nodes    = true
     enable_private_endpoint = false
@@ -137,7 +114,6 @@ resource "google_container_cluster" "primary" {
   # ========================================================================
   # WORKLOAD IDENTITY
   # ========================================================================
-  # Enables pod-level GCP authentication without service account keys.
   workload_identity_config {
     workload_pool = "${var.project_id}.svc.id.goog"
   }
@@ -169,8 +145,6 @@ resource "google_container_cluster" "primary" {
 # ============================================================================
 # NODE POOL
 # ============================================================================
-# The worker nodes that run your application pods.
-# Separate from the cluster definition for independent lifecycle management.
 resource "google_container_node_pool" "primary_nodes" {
   name     = "primary-node-pool"
   location = var.region
@@ -179,17 +153,11 @@ resource "google_container_node_pool" "primary_nodes" {
 
   node_count = 1
 
-  # ========================================================================
-  # AUTOSCALING
-  # ========================================================================
   autoscaling {
     min_node_count = 1
     max_node_count = 3
   }
 
-  # ========================================================================
-  # NODE CONFIGURATION
-  # ========================================================================
   node_config {
     machine_type    = "e2-medium"
     service_account = google_service_account.gke_nodes.email
@@ -210,9 +178,6 @@ resource "google_container_node_pool" "primary_nodes" {
     ]
   }
 
-  # ========================================================================
-  # UPGRADE SETTINGS
-  # ========================================================================
   upgrade_settings {
     max_surge       = 1
     max_unavailable = 0

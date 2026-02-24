@@ -56,6 +56,33 @@ jobs:
             projects/networking-host-lz-001/global/firewalls/allow-http-https-ingress
         continue-on-error: true
 
+      - name: Import Cloud SQL Instance
+        working-directory: terraform
+        run: |
+          terraform import \
+            -var="db_password=placeholder" \
+            module.database.google_sql_database_instance.main \
+            prod-workloads-lz-001:workloads-mysql-001
+        continue-on-error: true
+
+      - name: Import Cloud SQL Database
+        working-directory: terraform
+        run: |
+          terraform import \
+            -var="db_password=placeholder" \
+            module.database.google_sql_database.app_db \
+            prod-workloads-lz-001:workloads-mysql-001:appdb
+        continue-on-error: true
+
+      - name: Import Cloud SQL User
+        working-directory: terraform
+        run: |
+          terraform import \
+            -var="db_password=placeholder" \
+            module.database.google_sql_user.app_user \
+            prod-workloads-lz-001:workloads-mysql-001:appuser
+        continue-on-error: true
+
       - name: Import Secret Manager Secret
         working-directory: terraform
         run: |
@@ -63,4 +90,16 @@ jobs:
             -var="db_password=placeholder" \
             module.database.google_secret_manager_secret.db_password \
             projects/prod-workloads-lz-001/secrets/db-password
+        continue-on-error: true
+
+      - name: Import GKE Cluster
+        working-directory: terraform
+        run: |
+          terraform state rm \
+            -var="db_password=placeholder" \
+            module.gke.google_container_cluster.primary || true
+          terraform import \
+            -var="db_password=placeholder" \
+            module.gke.google_container_cluster.primary \
+            projects/prod-workloads-lz-001/locations/europe-west1/clusters/workloads-gke-001
         continue-on-error: true
