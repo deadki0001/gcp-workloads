@@ -81,7 +81,7 @@ resource "google_secret_manager_secret_iam_member" "api_secret_access" {
 # ============================================================================
 resource "google_container_cluster" "primary" {
   name     = "workloads-gke-001"
-  location = var.region
+  location = "europe-west1-b"
   project  = var.project_id
 
   # Set to false for learning environment so destroy and recreate works cleanly
@@ -152,7 +152,7 @@ resource "google_container_cluster" "primary" {
 # - max 1 node: prevents unexpected scaling costs
 resource "google_container_node_pool" "primary_nodes" {
   name     = "primary-node-pool"
-  location = var.region
+  location = "europe-west1-b"
   cluster  = google_container_cluster.primary.name
   project  = var.project_id
 
